@@ -1,0 +1,67 @@
+import pandas as pd
+import numpy as np
+import yfinance as yf
+from scipy.stats import norm
+import math
+
+# 1. Fetch historical data
+symbol = "^NSEI"  # NIFTY 50 Index
+data = yf.download(symbol, start="2000-01-01", end="2024-01-01")["Close"]
+
+# 2. Define parameters
+monthly_days = 21  # ~1 month trading days
+otm_pct = 0.05     # 5% OTM call
+r = 0.075          # Risk-free rate
+sigma = data.pct_change().std() * np.sqrt(250)  # Annualized volatility
+
+# 3. Backtest logic
+results = []
+
+for start in range(0, len(data) - monthly_days, monthly_days):
+    S0 = float(data.iloc[start])  # Ensure scalar
+    expiry = start + monthly_days
+    ST = float(data.iloc[expiry])  # Ensure scalar
+    K = S0 
+
+    T = monthly_days / 250
+
+    d1 = (math.log(S0 / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+    premium = S0 * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
+    premium = float(premium)  # Convert to scalar float
+
+    payoff = max(ST - K, 0)
+
+    pnl_index = ST - S0
+    pnl_option = premium - payoff
+    total_pnl = pnl_index + pnl_option
+
+    results.append({
+        "StartDate": data.index[start],
+        "S0": S0,
+        "K": round(K, 2),
+        "ST": ST,
+        "Premium": round(premium, 2),
+        "Payoff": round(payoff, 2),
+        "P&L Index": round(pnl_index, 2),
+        "P&L Option": round(pnl_option, 2),
+        "Total P&L": round(total_pnl, 2)
+    })
+
+# 4. Compile results
+df = pd.DataFrame(results)
+
+# 5. Performance metrics
+total_return = df["Total P&L"].sum() / df["S0"].iloc[0]
+annualized_return = (1 + total_return) ** (250 / (monthly_days * len(df))) - 1
+max_dd = (df["Total P&L"].cumsum().cummax() - df["Total P&L"].cumsum()).max()
+win_rate = (df["Total P&L"] > 0).mean()
+
+# 6. Output
+print("📊 Covered Call Backtest Results (NIFTY 50 - 2023):")
+print(df)
+print("\n📈 Strategy Performance:")
+print(f"Total Return: {total_return:.2%}")
+print(f"Annualized Return: {annualized_return:.2%}")
+print(f"Max Drawdown: ₹{max_dd:.2f}")
+print(f"Win Rate: {win_rate:.2%}")
